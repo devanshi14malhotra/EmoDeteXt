@@ -3,7 +3,7 @@
 [![Streamlit App](https://img.shields.io/badge/Streamlit-App-red?logo=streamlit)](https://emodetext-devanshimalhotra.streamlit.app/)
 ![Status](https://img.shields.io/badge/Status-Live-success)
 
-A machine learning project that detects emotions (Joy, Sadness, Anger, Fear, Love, Surprise) from textual data using Natural Language Processing (NLP), which uses publicly available emotion-labeled datasets for training and evaluation.
+A machine learning project that detects emotions (Joy, Sadness, Anger, Fear, Love, Surprise) from textual data using Natural Language Processing (NLP). This uses publicly available emotion-labeled datasets for training and evaluation.
 
 ## 📌 Project Overview
 This project builds an AI model capable of classifying the emotional tone of text. It combines multiple datasets, applies rigorous text preprocessing, and utilizes TF-IDF vectorization with Logistic Regression for accurate multi-class classification.
