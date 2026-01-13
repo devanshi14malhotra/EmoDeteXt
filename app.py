@@ -10,10 +10,16 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
-import time
+import joblib
+import os
 
 # --- Page Config ---
 st.set_page_config(page_title="EmoDeteXt", page_icon="🎭", layout="centered")
+
+# --- Constants ---
+MODEL_FILE = 'emotion_model.pkl'
+VECTORIZER_FILE = 'tfidf_vectorizer.pkl'
+METADATA_FILE = 'model_metadata.pkl'
 
 # --- NLTK Setup ---
 @st.cache_resource
@@ -26,7 +32,7 @@ def download_nltk_data():
         nltk.download('stopwords')
         nltk.download('wordnet')
         nltk.download('punkt')
-        nltk.download('omw-1.4') # Often needed for lemmatizer
+        nltk.download('omw-1.4')
 
 download_nltk_data()
 
@@ -43,21 +49,17 @@ def preprocess_text(text):
     cleaned_tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stop_words]
     return " ".join(cleaned_tokens)
 
-# --- Data Loading & Merging (Cached) ---
-@st.cache_data
+# --- Data Loading (Only if training needed) ---
 def load_and_prepare_data():
     try:
-        # Load datasets
         df1 = pd.read_csv('text.csv')
         df2 = pd.read_csv('go_emotions_dataset.csv')
         
-        # Process df1
         label_map = {0: 'sadness', 1: 'joy', 2: 'love', 3: 'anger', 4: 'fear', 5: 'surprise'}
         if 'label' in df1.columns:
             df1['emotion'] = df1['label'].map(label_map)
             df1 = df1[['text', 'emotion']]
 
-        # Process df2
         if 'example_very_unclear' in df2.columns:
             df2 = df2[df2['example_very_unclear'] == False]
         non_emotion_cols = ['id', 'text', 'example_very_unclear']
@@ -65,77 +67,82 @@ def load_and_prepare_data():
         df2['emotion'] = df2[emotion_cols].idxmax(axis=1)
         df2 = df2[['text', 'emotion']]
 
-        # Merge
         df = pd.concat([df1, df2], axis=0, ignore_index=True)
-        df = df.sample(frac=1, random_state=42).reset_index(drop=True)
         df.dropna(subset=['text', 'emotion'], inplace=True)
         df.drop_duplicates(subset=['text'], inplace=True)
         
         # Apply preprocessing
         df['cleaned_text'] = df['text'].apply(preprocess_text)
-        
         return df
     except FileNotFoundError:
         return None
 
-# --- Model Training (Cached) ---
+# --- Model Management ---
 @st.cache_resource
-def train_model(df):
-    tfidf = TfidfVectorizer(max_features=5000)
-    X = tfidf.fit_transform(df['cleaned_text'])
-    y = df['emotion']
+def get_model():
+    # Check if model exists
+    if os.path.exists(MODEL_FILE) and os.path.exists(VECTORIZER_FILE) and os.path.exists(METADATA_FILE):
+        model = joblib.load(MODEL_FILE)
+        tfidf = joblib.load(VECTORIZER_FILE)
+        metadata = joblib.load(METADATA_FILE)
+        return model, tfidf, metadata['accuracy']
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    model = LogisticRegression(max_iter=1000, multi_class='ovr')
-    model.fit(X_train, y_train)
-    
-    acc = accuracy_score(y_test, model.predict(X_test))
-    
-    return model, tfidf, acc
+    # Train if not exists
+    with st.spinner("Training model for the first time... This enables fast loads next time!"):
+        df = load_and_prepare_data()
+        if df is None:
+            return None, None, None
+            
+        tfidf = TfidfVectorizer(max_features=5000)
+        X = tfidf.fit_transform(df['cleaned_text'])
+        y = df['emotion']
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
+        model = LogisticRegression(max_iter=1000, multi_class='ovr')
+        model.fit(X_train, y_train)
+        
+        acc = accuracy_score(y_test, model.predict(X_test))
+        
+        # Save artifacts
+        joblib.dump(model, MODEL_FILE)
+        joblib.dump(tfidf, VECTORIZER_FILE)
+        joblib.dump({'accuracy': acc}, METADATA_FILE)
+        
+        return model, tfidf, acc
 
-# --- Main App Interface ---
+# --- Main App ---
 st.title("🎭 EmoDeteXt")
-st.markdown("Enter a sentence below, and the AI will detect the underlying emotion.")
+st.markdown("Enter a sentence below, and the AI will detect the emotional tone.")
 
-# Load Data
-with st.spinner("Loading and preparing datasets... this might take a moment on first run."):
-    df = load_and_prepare_data()
+model, tfidf, acc = get_model()
 
-if df is None:
-    st.error("Error: Dataset files ('text.csv', 'go_emotions_dataset.csv') not found in the directory.")
+if model is None:
+    st.error("Error: Dataset files not found. Ensure 'text.csv' and 'go_emotions_dataset.csv' are present.")
 else:
-    # Train Model
-    with st.spinner("Training the AI model..."):
-        model, tfidf, acc = train_model(df)
-    
-    st.sidebar.success(f"Model trained with {acc*100:.2f}% accuracy!")
-    st.sidebar.markdown("### Emotions it can detect:")
-    st.sidebar.write(", ".join(sorted(df['emotion'].unique())))
+    st.sidebar.success(f"Model Accuracy: {acc*100:.2f}%")
+    st.sidebar.info("Model loaded from disk.")
+    st.sidebar.markdown("### Detectable Emotions:")
+    st.sidebar.write(", ".join(sorted(model.classes_)))
 
-    # User Input
-    user_input = st.text_area("How are you feeling?", placeholder="Type something here... e.g., 'I got the job and I am so happy!'")
+    user_input = st.text_area("How are you feeling?", placeholder="Type something here...")
 
     if st.button("Analyze Emotion"):
         if user_input.strip() == "":
             st.warning("Please enter some text.")
         else:
-            # Prediction
             processed_input = preprocess_text(user_input)
             vec_input = tfidf.transform([processed_input])
             
-            # Get probabilities
             proba = model.predict_proba(vec_input)[0]
             prediction = model.predict(vec_input)[0]
             classes = model.classes_
             
-            # Display Result
             st.subheader(f"Prediction: **{prediction.upper()}**")
             
             if prediction == 'joy':
                 st.balloons()
             
-            # Probability Chart
             prob_df = pd.DataFrame({'Emotion': classes, 'Probability': proba})
             st.bar_chart(prob_df.set_index('Emotion'))
 
