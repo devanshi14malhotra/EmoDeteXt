@@ -5,3 +5,4 @@ nltk
 seaborn
 matplotlib
 streamlit
+altair<5
