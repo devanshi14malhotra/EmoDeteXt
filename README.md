@@ -49,8 +49,10 @@ streamlit run app.py
 
 ##### **Option 2: Access Online**
 
-Experience the live application without installation:
-👉 **[EmoDeteXt Web App](https://emodetext-devanshimalhotra.streamlit.app/)**
+Experience the live application without any installation:
+```bash
+https://emodetext-devanshimalhotra.streamlit.app/
+```
 
 ##### **Option 3: Explore the Code**
 
